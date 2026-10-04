@@ -1,10 +1,6 @@
-from sqlalchemy import (
-    Column, Integer, String, DateTime, ForeignKey, Text
-)
-from sqlalchemy.sql import func
-from sqlalchemy.orm import declarative_base, relationship
-
-Base = declarative_base()
+from datetime import datetime
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON
+from database import Base
 
 
 class Organization(Base):
@@ -12,15 +8,10 @@ class Organization(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    industry = Column(String, nullable=True)
-    employee_count = Column(Integer, nullable=True)
-    target_markets = Column(String, nullable=True)  # comma-separated e.g. "EU,CA,CO"
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    integrations = relationship("Integration", backref="organization")
-    evidence_items = relationship("EvidenceItem", backref="organization")
-    documents = relationship("ComplianceDocument", backref="organization")
-    obligations = relationship("Obligation", backref="organization")
+    industry = Column(String)
+    employee_count = Column(Integer)
+    target_markets = Column(String)  # comma-separated e.g. "EU,CA,VA"
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Integration(Base):
@@ -28,11 +19,11 @@ class Integration(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
-    provider = Column(String, nullable=False)  # aws, gcp, azure, github, gitlab, bamboohr, gusto
-    type = Column(String, nullable=False)  # cloud, dev, hr
-    status = Column(String, default="pending")  # pending, active, error
-    last_synced_at = Column(DateTime(timezone=True), nullable=True)
-    access_token_encrypted = Column(Text, nullable=True)
+    provider = Column(String, nullable=False)
+    type = Column(String, nullable=False)
+    status = Column(String, default="pending")
+    last_synced_at = Column(DateTime, nullable=True)
+    access_token_encrypted = Column(String, default="mock-token")
 
 
 class EvidenceItem(Base):
@@ -41,10 +32,10 @@ class EvidenceItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     integration_id = Column(Integer, ForeignKey("integrations.id"), nullable=False)
-    category = Column(String, nullable=False)  # access_control, data_retention, model_card, hr_training, etc
-    source_data = Column(Text, nullable=True)
-    collected_at = Column(DateTime(timezone=True), server_default=func.now())
-    status = Column(String, default="collected")
+    category = Column(String)
+    source_system = Column(String)
+    raw_data = Column(JSON)
+    collected_at = Column(DateTime, default=datetime.utcnow)
 
 
 class ComplianceDocument(Base):
@@ -52,12 +43,13 @@ class ComplianceDocument(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
-    doc_type = Column(String, nullable=False)  # eu_ai_act_technical_file, us_state_checklist
-    jurisdiction = Column(String, nullable=False)
-    content = Column(Text, nullable=False)
-    version = Column(Integer, default=1)
-    generated_at = Column(DateTime(timezone=True), server_default=func.now())
+    doc_type = Column(String)
+    jurisdiction = Column(String)
+    title = Column(String)
+    content = Column(Text)
     status = Column(String, default="draft")
+    generated_at = Column(DateTime, default=datetime.utcnow)
+    last_reviewed_at = Column(DateTime, nullable=True)
 
 
 class Obligation(Base):
@@ -65,9 +57,9 @@ class Obligation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
-    jurisdiction = Column(String, nullable=False)
-    requirement = Column(String, nullable=False)
-    description = Column(Text, nullable=True)
-    due_date = Column(DateTime(timezone=True), nullable=True)
-    status = Column(String, default="open")  # open, in_progress, met, overdue
-    last_reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    jurisdiction = Column(String)
+    regulation = Column(String)
+    requirement = Column(String)
+    status = Column(String, default="open")
+    due_date = Column(DateTime, nullable=True)
+    evidence_ids = Column(JSON, default=list)
