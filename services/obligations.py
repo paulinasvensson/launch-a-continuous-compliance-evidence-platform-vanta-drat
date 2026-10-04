@@ -1,85 +1,77 @@
-from datetime import datetime, timezone
-
+from datetime import datetime
 from sqlalchemy.orm import Session
 
 import models
 
-# Versioned, editable rule set describing per-jurisdiction obligations.
-# Kept as data rather than hardcoded branching logic, since state privacy
-# law requirements change frequently.
-US_STATE_PRIVACY_RULES = {
+EU_AI_ACT_DEADLINE = datetime(2026, 8, 2)
+US_STATE_DEADLINE = datetime(2026, 1, 1)
+
+EU_AI_ACT_REQUIREMENTS = [
+    "Maintain technical documentation for high-risk AI systems (Annex IV)",
+    "Implement risk management system across AI lifecycle",
+    "Ensure data governance and data quality for training datasets",
+    "Enable human oversight measures for AI system operation",
+    "Log system events (automatically generated logs) for traceability",
+    "Register high-risk AI system in EU database",
+]
+
+US_STATE_PRIVACY_REQUIREMENTS = {
     "CA": [
-        ("CCPA/CPRA risk assessment", "Document risk assessment for automated decision-making using AI."),
-        ("Opt-out mechanism", "Provide consumer opt-out of profiling/automated decisions."),
-    ],
-    "CO": [
-        ("Colorado Privacy Act DPIA", "Conduct data protection impact assessment for profiling."),
+        "Honor consumer opt-out of sale/sharing (CCPA/CPRA)",
+        "Conduct risk assessments for automated decision-making",
     ],
     "VA": [
-        ("Virginia CDPA assessment", "Document data protection assessment for AI-driven processing."),
+        "Provide consumer right to opt out of profiling (VCDPA)",
+        "Complete data protection assessments for targeted advertising",
+    ],
+    "CO": [
+        "Honor universal opt-out mechanism (Colorado Privacy Act)",
+        "Conduct data protection assessments for high-risk processing",
     ],
     "CT": [
-        ("Connecticut Data Privacy Act review", "Review automated profiling practices annually."),
+        "Provide consumer right to correct inaccurate personal data (CTDPA)",
+    ],
+    "UT": [
+        "Disclose categories of personal data sold or used for targeted ads (UCPA)",
+    ],
+    "TX": [
+        "Honor opt-out of sale of personal data and targeted advertising (TDPSA)",
     ],
 }
 
-EU_AI_ACT_RULES = {
-    "EU": [
-        ("Technical documentation (Annex IV)", "Maintain up-to-date technical file for high-risk AI systems."),
-        ("Risk management system", "Document and maintain ongoing risk management process."),
-        ("Post-market monitoring", "Establish post-market monitoring plan for deployed AI system."),
-    ]
-}
 
+def seed_default_obligations(db: Session, org: models.Organization):
+    markets = [m.strip().upper() for m in (org.target_markets or "").split(",") if m.strip()]
+    obligations = []
 
-def seed_obligations_for_org(db: Session, org_id: int, jurisdictions: list[str]):
-    created = []
-    for j in jurisdictions:
-        rules = EU_AI_ACT_RULES.get(j) or US_STATE_PRIVACY_RULES.get(j)
-        if not rules:
-            continue
-        for requirement, description in rules:
-            exists = (
-                db.query(models.Obligation)
-                .filter(
-                    models.Obligation.org_id == org_id,
-                    models.Obligation.jurisdiction == j,
-                    models.Obligation.requirement == requirement,
-                )
-                .first()
-            )
-            if exists:
-                continue
-            obligation = models.Obligation(
-                org_id=org_id,
-                jurisdiction=j,
+    if "EU" in markets:
+        for requirement in EU_AI_ACT_REQUIREMENTS:
+            obligations.append(models.Obligation(
+                org_id=org.id,
+                jurisdiction="EU",
+                regulation="EU AI Act",
                 requirement=requirement,
-                description=description,
-                status="open",
-            )
-            db.add(obligation)
-            created.append(obligation)
-    db.commit()
-    return created
+                due_date=EU_AI_ACT_DEADLINE,
+                evidence_ids=[],
+            ))
 
+    for state in markets:
+        requirements = US_STATE_PRIVACY_REQUIREMENTS.get(state)
+        if requirements:
+            for requirement in requirements:
+                obligations.append(models.Obligation(
+                    org_id=org.id,
+                    jurisdiction=state,
+                    regulation=f"{state} Privacy Law",
+                    requirement=requirement,
+                    due_date=US_STATE_DEADLINE,
+                    evidence_ids=[],
+                ))
 
-def list_obligations(db: Session, org_id: int, jurisdiction: str | None = None, status: str | None = None):
-    query = db.query(models.Obligation).filter(models.Obligation.org_id == org_id)
-    if jurisdiction:
-        query = query.filter(models.Obligation.jurisdiction == jurisdiction)
-    if status:
-        query = query.filter(models.Obligation.status == status)
-    return query.all()
+    if obligations:
+        db.add_all(obligations)
+        db.commit()
+        for ob in obligations:
+            db.refresh(ob)
 
-
-def update_obligation(db: Session, obligation_id: int, status: str | None, mark_reviewed: bool):
-    obligation = db.query(models.Obligation).filter(models.Obligation.id == obligation_id).first()
-    if not obligation:
-        return None
-    if status:
-        obligation.status = status
-    if mark_reviewed:
-        obligation.last_reviewed_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(obligation)
-    return obligation
+    return obligations
