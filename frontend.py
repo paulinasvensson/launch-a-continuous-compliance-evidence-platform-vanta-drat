@@ -1,162 +1,125 @@
 PAGE_HTML = """<html>
 <head>
 <meta charset="UTF-8">
-<title>Compliance Evidence Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Compliance Evidence — Try it</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans text-sm">
 <div class="max-w-5xl mx-auto p-4">
 
-  <div class="flex items-center justify-between mb-3">
+  <div class="mb-3 flex items-center justify-between gap-3 flex-wrap">
     <div>
-      <h1 class="text-lg font-bold text-slate-900">AI Act & Privacy Evidence Hub</h1>
-      <p class="text-slate-500 text-xs">Continuous compliance evidence for EU AI Act & US state privacy laws.</p>
+      <h1 class="text-lg font-semibold text-slate-900">Continuous Compliance Evidence</h1>
+      <p class="text-xs text-slate-500">EU AI Act technical files + US state privacy obligations, generated from your real stack.</p>
     </div>
     <div class="flex items-center gap-2">
-      <input id="licenseKey" type="text" placeholder="License key"
-        class="border border-slate-300 rounded-lg px-2 py-1.5 text-xs w-40 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      <button onclick="saveKey()" class="bg-slate-800 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-700">Save</button>
-    </div>
-  </div>
-  <div id="keyStatus" class="text-xs text-emerald-600 mb-3 hidden">Saved ✓</div>
-
-  <div class="grid grid-cols-2 gap-4">
-
-    <!-- Org creation -->
-    <div class="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
-      <h2 class="font-semibold text-slate-900 mb-1">1. Create Organization <span class="text-emerald-600 text-xs font-normal">Free</span></h2>
-      <p class="text-xs text-slate-500 mb-2">Set up your org profile to start tracking evidence.</p>
-      <input id="orgName" type="text" placeholder="Organization name"
-        class="w-full border border-slate-300 rounded-lg px-2 py-1.5 mb-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      <select id="orgSize" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 mb-2 text-xs">
-        <option value="1-10">1–10 employees</option>
-        <option value="11-50">11–50 employees</option>
-        <option value="51-250">51–250 employees</option>
-      </select>
-      <button onclick="createOrg()" class="bg-indigo-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-indigo-700 w-full">Create Organization</button>
-      <div id="orgResult" class="text-xs mt-2 text-slate-600 break-words"></div>
-    </div>
-
-    <!-- Generate document -->
-    <div class="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
-      <h2 class="font-semibold text-slate-900 mb-1">2. Generate AI Act Documentation <span class="text-indigo-600 text-xs font-normal">Paid</span></h2>
-      <p class="text-xs text-slate-500 mb-2">Compile technical documentation from connected evidence.</p>
-      <input id="orgIdGen" type="text" placeholder="Organization ID"
-        class="w-full border border-slate-300 rounded-lg px-2 py-1.5 mb-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      <button onclick="generateDoc()" class="bg-indigo-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-indigo-700 w-full">Generate Document</button>
-      <div id="genResult" class="text-xs mt-2 break-words"></div>
+      <label class="text-xs text-slate-500 whitespace-nowrap">License key</label>
+      <input id="licenseKey" type="text" placeholder="sk_live_..." class="border border-slate-300 rounded-lg px-2 py-1.5 text-xs w-36 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      <span id="licenseSaved" class="text-xs text-emerald-600 hidden">saved</span>
     </div>
   </div>
 
-  <!-- View document -->
-  <div class="bg-white border border-slate-200 rounded-lg shadow-sm p-4 mt-4">
-    <h2 class="font-semibold text-slate-900 mb-1">3. View Generated Document <span class="text-emerald-600 text-xs font-normal">Free</span></h2>
-    <div class="flex gap-2 mb-2">
-      <input id="docId" type="text" placeholder="Document ID"
-        class="flex-1 border border-slate-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      <button onclick="viewDoc()" class="bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-700">View</button>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+    <!-- Step 1: Create Org (free) -->
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-medium text-slate-900">1. Create your organization</h2>
+        <span class="text-[10px] uppercase tracking-wide bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Free</span>
+      </div>
+      <div class="space-y-2">
+        <input id="orgName" type="text" placeholder="Company name" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <input id="orgIndustry" type="text" placeholder="Industry (e.g. Fintech SaaS)" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <button onclick="createOrg()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg py-2 text-sm font-medium transition">Create organization</button>
+        <div id="orgResult" class="text-xs mt-1 min-h-[1.5rem]"></div>
+      </div>
     </div>
-    <pre id="docResult" class="text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 max-h-32 overflow-y-auto whitespace-pre-wrap"></pre>
+
+    <!-- Step 2: Generate Documentation (paid) -->
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-medium text-slate-900">2. Generate AI Act technical file</h2>
+        <span class="text-[10px] uppercase tracking-wide bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">Paid</span>
+      </div>
+      <div class="space-y-2">
+        <input id="orgIdInput" type="text" placeholder="Organization ID (from step 1)" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <button onclick="generateDoc()" class="w-full bg-slate-900 hover:bg-slate-800 text-white rounded-lg py-2 text-sm font-medium transition">Generate documentation</button>
+        <div id="docResult" class="text-xs mt-1 min-h-[1.5rem]"></div>
+      </div>
+    </div>
+
   </div>
 
+  <p class="text-[11px] text-slate-400 mt-3">Connecting cloud/dev/HR tools, evidence syncing, and obligation tracking are available once you're on a paid plan — purchase a license to unlock full access.</p>
 </div>
 
 <script>
-function getKey(){ return localStorage.getItem('licenseKey') || ''; }
+const licenseInput = document.getElementById('licenseKey');
+licenseInput.value = localStorage.getItem('licenseKey') || '';
+licenseInput.addEventListener('input', () => {
+  localStorage.setItem('licenseKey', licenseInput.value);
+  const el = document.getElementById('licenseSaved');
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 1000);
+});
 
-window.onload = function(){
-  const k = getKey();
-  if(k){ document.getElementById('licenseKey').value = k; }
-};
-
-function saveKey(){
-  const v = document.getElementById('licenseKey').value.trim();
-  localStorage.setItem('licenseKey', v);
-  const s = document.getElementById('keyStatus');
-  s.classList.remove('hidden');
-  setTimeout(()=>s.classList.add('hidden'), 1500);
-}
-
-async function createOrg(){
+async function createOrg() {
   const name = document.getElementById('orgName').value.trim();
-  const size = document.getElementById('orgSize').value;
-  const result = document.getElementById('orgResult');
-  if(!name){ result.textContent = 'Please enter an organization name.'; result.className='text-xs mt-2 text-red-600'; return; }
-  result.textContent = 'Creating...';
-  result.className = 'text-xs mt-2 text-slate-500';
-  try{
+  const industry = document.getElementById('orgIndustry').value.trim();
+  const resultEl = document.getElementById('orgResult');
+  if (!name) { resultEl.innerHTML = '<span class="text-red-500">Please enter a company name.</span>'; return; }
+  resultEl.innerHTML = '<span class="text-slate-400">Creating...</span>';
+  try {
     const res = await fetch('/orgs', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name:name, size:size})
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, industry: industry})
     });
-    const data = await res.json();
-    if(!res.ok){
-      result.textContent = 'Error: ' + (data.detail || res.status);
-      result.className='text-xs mt-2 text-red-600';
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      resultEl.innerHTML = '<span class="text-red-500">Error: ' + (data.detail || res.status) + '</span>';
       return;
     }
-    const orgId = data.id || data.org_id || JSON.stringify(data);
-    result.innerHTML = 'Organization created. ID: <span class="font-mono font-semibold">' + orgId + '</span>';
-    result.className='text-xs mt-2 text-emerald-700';
-    document.getElementById('orgIdGen').value = orgId;
-  }catch(e){
-    result.textContent = 'Network error: ' + e.message;
-    result.className='text-xs mt-2 text-red-600';
+    const id = data.id || data.org_id || JSON.stringify(data);
+    resultEl.innerHTML = '<span class="text-emerald-600">Created — Org ID: <b>' + id + '</b></span>';
+    document.getElementById('orgIdInput').value = id;
+  } catch (e) {
+    resultEl.innerHTML = '<span class="text-red-500">Network error: ' + e.message + '</span>';
   }
 }
 
-async function generateDoc(){
-  const orgId = document.getElementById('orgIdGen').value.trim();
-  const result = document.getElementById('genResult');
-  if(!orgId){ result.textContent = 'Enter an Organization ID (create one above first).'; result.className='text-xs mt-2 text-red-600'; return; }
-  result.textContent = 'Generating...';
-  result.className = 'text-xs mt-2 text-slate-500';
-  try{
+async function generateDoc() {
+  const orgId = document.getElementById('orgIdInput').value.trim();
+  const resultEl = document.getElementById('docResult');
+  const key = localStorage.getItem('licenseKey') || '';
+  if (!orgId) { resultEl.innerHTML = '<span class="text-red-500">Enter an organization ID first (create one in step 1).</span>'; return; }
+  resultEl.innerHTML = '<span class="text-slate-400">Generating...</span>';
+  try {
     const res = await fetch('/documents/generate', {
-      method:'POST',
-      headers:{'Content-Type':'application/json', 'X-License-Key': getKey()},
-      body: JSON.stringify({org_id: orgId, type:'eu_ai_act_technical_documentation'})
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-License-Key': key},
+      body: JSON.stringify({org_id: orgId})
     });
-    if(res.status === 402){
-      result.innerHTML = '🔒 A valid license key is required for this feature. Enter your license key above and click Save, then try again.';
-      result.className = 'text-xs mt-2 text-amber-700 font-medium';
+    if (res.status === 402) {
+      resultEl.innerHTML = '<span class="text-amber-600">A valid license key is required for document generation. Enter your license key above after purchasing a plan.</span>';
       return;
     }
-    const data = await res.json();
-    if(!res.ok){
-      result.textContent = 'Error: ' + (data.detail || res.status);
-      result.className='text-xs mt-2 text-red-600';
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      resultEl.innerHTML = '<span class="text-red-500">Error: ' + (data.detail || res.status) + '</span>';
       return;
     }
-    const docId = data.id || data.document_id || JSON.stringify(data);
-    result.innerHTML = 'Document generated. ID: <span class="font-mono font-semibold">' + docId + '</span> — use section 3 to view it.';
-    result.className='text-xs mt-2 text-emerald-700';
-    document.getElementById('docId').value = docId;
-  }catch(e){
-    result.textContent = 'Network error: ' + e.message;
-    result.className='text-xs mt-2 text-red-600';
-  }
-}
-
-async function viewDoc(){
-  const docId = document.getElementById('docId').value.trim();
-  const pre = document.getElementById('docResult');
-  if(!docId){ pre.textContent = 'Enter a Document ID.'; return; }
-  pre.textContent = 'Loading...';
-  try{
-    const res = await fetch('/documents/' + encodeURIComponent(docId));
-    const data = await res.json();
-    if(!res.ok){
-      pre.textContent = 'Error: ' + (data.detail || res.status);
-      return;
+    const docId = data.id || data.document_id;
+    let viewLink = '';
+    if (docId) {
+      viewLink = ' — <a class="text-indigo-600 underline" href="/documents/' + docId + '" target="_blank">view document</a>';
     }
-    pre.textContent = JSON.stringify(data, null, 2);
-  }catch(e){
-    pre.textContent = 'Network error: ' + e.message;
+    resultEl.innerHTML = '<span class="text-emerald-600">Document generated' + (docId ? ' (ID: ' + docId + ')' : '') + '</span>' + viewLink;
+  } catch (e) {
+    resultEl.innerHTML = '<span class="text-red-500">Network error: ' + e.message + '</span>';
   }
 }
 </script>
 </body>
-</html>
-"""
+</html>"""
