@@ -19,32 +19,30 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
+_initialized = False
+
 
 def get_db():
+    # Deliberately lazy, not at module import time — see this file's own
+    # docstring in mvp_build.py for exactly why: table creation here no
+    # longer depends on whether main.py imports `models` or `database`
+    # first, since by the time any request reaches get_db(), every module
+    # the app needs has already finished importing, full stop.
+    global _initialized
+    if not _initialized:
+        import models  # noqa: E402  safe here: already fully imported by this point, whichever module triggered it first
+
+        Base.metadata.create_all(bind=engine)
+        if hasattr(models, "seed_if_empty"):
+            _seed_db = SessionLocal()
+            try:
+                models.seed_if_empty(_seed_db)
+            finally:
+                _seed_db.close()
+        _initialized = True
+
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
-
-# Imported here, after Base is defined, not at the top of this file: models.py
-# does `from database import Base`, so importing it any earlier would be a
-# circular import with nothing defined yet. Python resolves this fine because
-# this module is already in sys.modules (if partially initialized) by the time
-# models.py asks for Base, which already exists above this line — registering
-# every model's table with Base.metadata before create_all runs below.
-import models  # noqa: E402
-
-Base.metadata.create_all(bind=engine)
-
-# models.py may optionally define seed_if_empty(db) for one-time reference/
-# seed data — the only sanctioned place for it (never an
-# @app.on_event("startup") handler in main.py, which a bare TestClient()
-# never triggers).
-if hasattr(models, "seed_if_empty"):
-    _seed_db = SessionLocal()
-    try:
-        models.seed_if_empty(_seed_db)
-    finally:
-        _seed_db.close()
