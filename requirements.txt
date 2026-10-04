@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+jinja2
+apscheduler
+cryptography
+
+uvicorn
+httpx
+psycopg2-binary
