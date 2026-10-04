@@ -1,27 +1,15 @@
-import json
-from datetime import datetime, timezone
-
-from sqlalchemy.orm import Session
-
-import models
-from services.crypto import encrypt_token
-
-VALID_PROVIDERS = {
-    "aws": "cloud", "gcp": "cloud", "azure": "cloud",
-    "github": "dev", "gitlab": "dev",
-    "bamboohr": "hr", "gusto": "hr",
-}
+from datetime import datetime
+from models import Integration, EvidenceItem, Organization, ComplianceObligation
+from services.adapters import pull_evidence
 
 
-def connect_integration(db: Session, org_id: int, provider: str, access_token: str) -> models.Integration:
-    provider = provider.lower()
-    integration_type = VALID_PROVIDERS.get(provider, "cloud")
-    integration = models.Integration(
+def connect_integration(db, org_id, provider, type_, access_token):
+    integration = Integration(
         org_id=org_id,
         provider=provider,
-        type=integration_type,
-        status="active",
-        access_token_encrypted=encrypt_token(access_token),
+        type=type_,
+        status="connected",
+        access_token_encrypted=f"enc:{access_token}" if access_token else None,
     )
     db.add(integration)
     db.commit()
@@ -29,50 +17,44 @@ def connect_integration(db: Session, org_id: int, provider: str, access_token: s
     return integration
 
 
-def _simulate_pull(integration: models.Integration) -> list[dict]:
-    """Simulate a retryable, idempotent pull of evidence from a provider's API."""
-    now = datetime.now(timezone.utc).isoformat()
-    if integration.type == "cloud":
-        return [{"category": "access_control", "data": {"provider": integration.provider, "checked_at": now, "mfa_enforced": True}}]
-    if integration.type == "dev":
-        return [{"category": "model_card", "data": {"provider": integration.provider, "checked_at": now, "repos_scanned": 12}}]
-    return [{"category": "hr_training", "data": {"provider": integration.provider, "checked_at": now, "ai_policy_ack_rate": 0.86}}]
+def sync_integration(db, integration_id):
+    integration = db.query(Integration).filter(Integration.id == integration_id).first()
+    if not integration:
+        return None
 
+    org = db.query(Organization).filter(Organization.id == integration.org_id).first()
+    raw_items = pull_evidence(integration.provider, org, integration)
 
-def sync_integration(db: Session, integration: models.Integration) -> list[models.EvidenceItem]:
-    """Idempotent: safe to call repeatedly / retry on failure."""
-    items = []
-    try:
-        pulled = _simulate_pull(integration)
-        for entry in pulled:
-            existing = (
-                db.query(models.EvidenceItem)
-                .filter(
-                    models.EvidenceItem.integration_id == integration.id,
-                    models.EvidenceItem.category == entry["category"],
-                )
-                .order_by(models.EvidenceItem.collected_at.desc())
-                .first()
-            )
-            source_data = json.dumps(entry["data"])
-            if existing and existing.source_data == source_data:
-                continue  # no change, idempotent no-op
-            item = models.EvidenceItem(
-                org_id=integration.org_id,
-                integration_id=integration.id,
-                category=entry["category"],
-                source_data=source_data,
-                status="collected",
-            )
-            db.add(item)
-            items.append(item)
-        integration.status = "active"
-        integration.last_synced_at = datetime.now(timezone.utc)
-        db.commit()
-        for item in items:
-            db.refresh(item)
-    except Exception:
-        integration.status = "error"
-        db.commit()
-        raise
-    return items
+    # Match evidence to obligations: cloud/dev evidence -> eu_ai_act obligations,
+    # hr evidence -> us_state_privacy obligations (attestation-heavy requirements).
+    framework_target = "eu_ai_act" if integration.type in ("cloud", "dev") else "us_state_privacy"
+    candidate_obligations = (
+        db.query(ComplianceObligation)
+        .filter(ComplianceObligation.org_id == org.id, ComplianceObligation.framework == framework_target)
+        .all()
+    )
+
+    created = []
+    for idx, item in enumerate(raw_items):
+        obligation = candidate_obligations[idx % len(candidate_obligations)] if candidate_obligations else None
+        evidence = EvidenceItem(
+            org_id=org.id,
+            obligation_id=obligation.id if obligation else None,
+            source_integration_id=integration.id,
+            type=item["type"],
+            content_ref=item["content_ref"],
+            is_current=True,
+        )
+        db.add(evidence)
+        created.append(evidence)
+
+        if obligation and obligation.status == "not_started":
+            obligation.status = "in_progress"
+        if obligation:
+            obligation.last_checked_at = datetime.utcnow()
+
+    integration.last_synced_at = datetime.utcnow()
+    db.commit()
+    for e in created:
+        db.refresh(e)
+    return created
