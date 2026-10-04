@@ -1,54 +1,42 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import HTMLResponse
-from apscheduler.schedulers.background import BackgroundScheduler
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
-from database import get_db, SessionLocal
+from database import get_db
 from entitlements import require_pro
 from frontend import PAGE_HTML
-from services import integrations as integrations_service
-from services import evidence as evidence_service
-from services import documents as documents_service
-from services import obligations as obligations_service
+from services import sync as sync_service
+from services import documents as document_service
+from services import obligations as obligation_service
 
 app = FastAPI(title="Continuous Compliance Evidence Platform")
 
-
-# ---------- schemas ----------
 
 class OrgCreate(BaseModel):
     name: str
     industry: Optional[str] = None
     employee_count: Optional[int] = None
-    target_markets: Optional[str] = None  # comma-separated, e.g. "EU,CA,VA"
+    target_markets: Optional[str] = None  # e.g. "EU,CA,VA"
 
 
 class IntegrationConnect(BaseModel):
     org_id: int
     provider: str
-    access_token: str
-
-
-class DocumentGenerate(BaseModel):
-    org_id: int
-    doc_type: str
-    jurisdiction: str
+    type: str
 
 
 class ObligationUpdate(BaseModel):
     status: Optional[str] = None
-    mark_reviewed: bool = False
+    due_date: Optional[datetime] = None
 
-
-# ---------- routes ----------
 
 @app.get("/", response_class=HTMLResponse)
-def root():
+def home():
     return HTMLResponse(PAGE_HTML)
 
 
@@ -63,132 +51,100 @@ def create_org(payload: OrgCreate, db: Session = Depends(get_db)):
     db.add(org)
     db.commit()
     db.refresh(org)
-
-    if payload.target_markets:
-        jurisdictions = [j.strip() for j in payload.target_markets.split(",") if j.strip()]
-        obligations_service.seed_obligations_for_org(db, org.id, jurisdictions)
-
-    return {
-        "id": org.id,
-        "name": org.name,
-        "industry": org.industry,
-        "employee_count": org.employee_count,
-        "target_markets": org.target_markets,
-        "created_at": org.created_at,
-    }
+    obligation_service.seed_default_obligations(db, org)
+    return org
 
 
 @app.post("/integrations/connect", dependencies=[Depends(require_pro)])
 def connect_integration(payload: IntegrationConnect, db: Session = Depends(get_db)):
-    org = db.query(models.Organization).filter(models.Organization.id == payload.org_id).first()
+    org = db.query(models.Organization).get(payload.org_id)
     if not org:
-        raise HTTPException(status_code=404, detail="organization not found")
-    integration = integrations_service.connect_integration(db, payload.org_id, payload.provider, payload.access_token)
-    return {
-        "id": integration.id,
-        "provider": integration.provider,
-        "type": integration.type,
-        "status": integration.status,
-    }
+        raise HTTPException(404, "organization not found")
+
+    integration = models.Integration(
+        org_id=org.id,
+        provider=payload.provider,
+        type=payload.type,
+        status="connected",
+    )
+    db.add(integration)
+    db.commit()
+    db.refresh(integration)
+    return integration
 
 
-@app.post("/integrations/{id}/sync", dependencies=[Depends(require_pro)])
-def sync_integration(id: int, db: Session = Depends(get_db)):
-    integration = db.query(models.Integration).filter(models.Integration.id == id).first()
+@app.post("/integrations/{integration_id}/sync", dependencies=[Depends(require_pro)])
+def sync_integration_route(integration_id: int, db: Session = Depends(get_db)):
+    integration = db.query(models.Integration).get(integration_id)
     if not integration:
-        raise HTTPException(status_code=404, detail="integration not found")
-    try:
-        items = integrations_service.sync_integration(db, integration)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"sync failed: {exc}")
-    return {"synced_items": len(items), "status": integration.status, "last_synced_at": integration.last_synced_at}
+        raise HTTPException(404, "integration not found")
+
+    created = sync_service.sync_integration(db, integration)
+    return {"synced_count": len(created), "evidence": created}
 
 
 @app.get("/evidence", dependencies=[Depends(require_pro)])
-def list_evidence(org_id: int, category: Optional[str] = None, status: Optional[str] = None, db: Session = Depends(get_db)):
-    items = evidence_service.list_evidence(db, org_id, category, status)
-    return [
-        {
-            "id": i.id,
-            "integration_id": i.integration_id,
-            "category": i.category,
-            "source_data": i.source_data,
-            "collected_at": i.collected_at,
-            "status": i.status,
-        }
-        for i in items
-    ]
+def list_evidence(
+    org_id: int,
+    category: Optional[str] = None,
+    since: Optional[datetime] = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(models.EvidenceItem).filter(models.EvidenceItem.org_id == org_id)
+    if category:
+        query = query.filter(models.EvidenceItem.category == category)
+    if since:
+        query = query.filter(models.EvidenceItem.collected_at >= since)
+    return query.order_by(models.EvidenceItem.collected_at.desc()).all()
 
 
 @app.post("/documents/generate", dependencies=[Depends(require_pro)])
-def generate_document(payload: DocumentGenerate, db: Session = Depends(get_db)):
-    try:
-        doc = documents_service.generate_document(db, payload.org_id, payload.doc_type, payload.jurisdiction)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return {"id": doc.id, "doc_type": doc.doc_type, "jurisdiction": doc.jurisdiction, "version": doc.version, "status": doc.status}
+def generate_document_route(
+    org_id: int,
+    doc_type: str = "EU AI Act Technical Documentation",
+    jurisdiction: str = "EU",
+    db: Session = Depends(get_db),
+):
+    org = db.query(models.Organization).get(org_id)
+    if not org:
+        raise HTTPException(404, "organization not found")
+    return document_service.generate_document(db, org, doc_type, jurisdiction)
 
 
-@app.get("/documents/{id}")
-def get_document(id: int, db: Session = Depends(get_db)):
-    doc = documents_service.get_document(db, id)
+@app.get("/documents/{doc_id}")
+def get_document(doc_id: int, db: Session = Depends(get_db)):
+    doc = db.query(models.ComplianceDocument).get(doc_id)
     if not doc:
-        raise HTTPException(status_code=404, detail="document not found")
-    return {
-        "id": doc.id,
-        "doc_type": doc.doc_type,
-        "jurisdiction": doc.jurisdiction,
-        "content": doc.content,
-        "version": doc.version,
-        "generated_at": doc.generated_at,
-        "status": doc.status,
-    }
+        raise HTTPException(404, "document not found")
+    return doc
 
 
 @app.get("/obligations", dependencies=[Depends(require_pro)])
-def list_obligations(org_id: int, jurisdiction: Optional[str] = None, status: Optional[str] = None, db: Session = Depends(get_db)):
-    items = obligations_service.list_obligations(db, org_id, jurisdiction, status)
-    return [
-        {
-            "id": o.id,
-            "jurisdiction": o.jurisdiction,
-            "requirement": o.requirement,
-            "description": o.description,
-            "due_date": o.due_date,
-            "status": o.status,
-            "last_reviewed_at": o.last_reviewed_at,
-        }
-        for o in items
-    ]
+def list_obligations(
+    org_id: int,
+    jurisdiction: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(models.Obligation).filter(models.Obligation.org_id == org_id)
+    if jurisdiction:
+        query = query.filter(models.Obligation.jurisdiction == jurisdiction)
+    if status:
+        query = query.filter(models.Obligation.status == status)
+    return query.all()
 
 
-@app.patch("/obligations/{id}", dependencies=[Depends(require_pro)])
-def update_obligation(id: int, payload: ObligationUpdate, db: Session = Depends(get_db)):
-    obligation = obligations_service.update_obligation(db, id, payload.status, payload.mark_reviewed)
+@app.patch("/obligations/{obligation_id}", dependencies=[Depends(require_pro)])
+def update_obligation(obligation_id: int, payload: ObligationUpdate, db: Session = Depends(get_db)):
+    obligation = db.query(models.Obligation).get(obligation_id)
     if not obligation:
-        raise HTTPException(status_code=404, detail="obligation not found")
-    return {
-        "id": obligation.id,
-        "status": obligation.status,
-        "last_reviewed_at": obligation.last_reviewed_at,
-    }
+        raise HTTPException(404, "obligation not found")
 
+    if payload.status is not None:
+        obligation.status = payload.status
+    if payload.due_date is not None:
+        obligation.due_date = payload.due_date
 
-# ---------- background sync scheduler ----------
-
-def _scheduled_sync_all():
-    db = SessionLocal()
-    try:
-        active_integrations = db.query(models.Integration).filter(models.Integration.status != "disabled").all()
-        for integration in active_integrations:
-            try:
-                integrations_service.sync_integration(db, integration)
-            except Exception:
-                continue
-    finally:
-        db.close()
-
-
-scheduler = BackgroundScheduler()
-scheduler.add_job(_scheduled_sync_all, "interval", hours=6, id="periodic_evidence_sync")
-scheduler.start()
+    db.commit()
+    db.refresh(obligation)
+    return obligation
