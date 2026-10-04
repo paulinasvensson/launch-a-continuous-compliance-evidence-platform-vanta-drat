@@ -1,31 +1,33 @@
-# Continuous Compliance Evidence Platform (MVP)
+# Continuous Compliance Evidence Platform (EU AI Act + US State Privacy)
 
-Continuous compliance-evidence platform for SMEs shipping AI features into the
-EU and across US state privacy jurisdictions. It ingests evidence from
-cloud/dev/HR tools (stubbed connectors behind a common adapter interface),
-generates EU AI Act technical documentation, and tracks obligations across
-the 2026 US state privacy-law patchwork.
+MVP for SMEs deploying AI features that must track EU AI Act technical
+documentation duties and the fragmenting 2026 US state privacy-law patchwork,
+without enterprise-grade GRC tooling or in-house counsel.
 
-## Core flow
-1. `POST /orgs` — create an organization profile (free) and auto-seed
-   obligations based on declared target markets (EU / US states).
-2. `POST /integrations/connect` — register a cloud/dev/HR tool connection
-   (paid).
-3. `POST /integrations/{id}/sync` — pull mock evidence for that provider
-   (paid).
-4. `GET /evidence` — review collected evidence (paid).
-5. `POST /documents/generate` — render an EU AI Act technical file from
-   current evidence via Jinja2 (paid).
-6. `GET /documents/{id}` — view a generated document (free).
-7. `GET /obligations` / `PATCH /obligations/{id}` — track and update
-   compliance obligations (paid).
+## What it does
 
-## Connectors
-All provider connectors (AWS, GCP, Azure, GitHub, GitLab, BambooHR, Rippling)
-implement `services/connectors.py:BaseConnector.fetch_evidence()`. Real OAuth
-flows are out of scope for this MVP — each connector returns realistic mock
-evidence payloads so the sync and documentation pipeline can be fully
-demoed. New providers can be added by implementing the same interface and
-registering them in `CONNECTOR_REGISTRY`.
+- Create an organization profile with jurisdictions (EU sales flag + operating states).
+- Auto-generates applicable compliance obligations from structured, seeded
+  reference rules (`ObligationRule`) — not hardcoded in endpoint logic, so
+  regulatory text/dates can be updated independently of code.
+- Connect pluggable OAuth-style integrations (AWS, GCP, Azure, GitHub,
+  BambooHR, Rippling) and sync evidence pulls from them.
+- Map evidence to obligations and track status (not_started/in_progress/met/at_risk).
+- Generate versioned, idempotent technical documentation drafts
+  (EU AI Act technical file, DPIA, state privacy notice) from current
+  evidence, optionally enriched by an LLM (OpenAI) if `OPENAI_API_KEY` is set.
+- Dashboard summary of aggregate compliance risk across frameworks.
 
-## Run locally
+## Endpoints
+
+- `POST /orgs` — free — create org + auto-generate applicable obligations
+- `POST /integrations/connect` — paid — register a tool connection
+- `POST /integrations/{id}/sync` — paid — pull evidence from a connected tool
+- `GET /obligations?org_id=` — free — list obligations/status
+- `GET /obligations/{id}/evidence` — paid — evidence mapped to an obligation
+- `POST /documents/generate` — paid — generate a new versioned draft document
+- `GET /documents/{id}` — free — retrieve a document + version history
+- `GET /dashboard/summary?org_id=` — free — aggregate risk status
+
+## Run
+
