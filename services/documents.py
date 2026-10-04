@@ -1,72 +1,93 @@
+import os
 from datetime import datetime
-from jinja2 import Template
-from sqlalchemy.orm import Session
+from models import TechnicalDocument, ComplianceObligation, EvidenceItem
 
-import models
-
-TECH_FILE_TEMPLATE = Template(
-    """# {{ title }}
-
-## 1. Organization Profile
-Name: {{ org_name }}
-Industry: {{ industry }}
-Employee count: {{ employee_count }}
-Jurisdiction covered: {{ jurisdiction }}
-
-## 2. System Overview
-This technical file documents the AI system(s) operated by {{ org_name }} and
-the controls in place to satisfy {{ jurisdiction }} obligations.
-
-## 3. Evidence Summary
-{% for category, items in evidence_by_category.items() %}
-### {{ category }}
-{% for item in items %}
-- [{{ item.source_system }}] {{ item.raw_data }}
-{% endfor %}
-{% endfor %}
-{% if not evidence_by_category %}
-No evidence has been collected yet. Connect an integration and sync to populate this section.
-{% endif %}
-
-## 4. Risk Management Measures
-Access control, encryption, logging, and code/data change-control evidence
-collected above constitute the ongoing risk management record.
-
-## 5. Record Keeping
-Evidence is collected continuously from connected systems.
-Document generated: {{ generated_at }}
-"""
-)
+DOC_TITLES = {
+    "eu_ai_act_technical_file": "EU AI Act Technical Documentation",
+    "dpia": "Data Protection Impact Assessment",
+    "state_privacy_notice": "US State Privacy Notice Summary",
+}
 
 
-def generate_document(db: Session, org: models.Organization, doc_type: str, jurisdiction: str):
-    evidence = db.query(models.EvidenceItem).filter(models.EvidenceItem.org_id == org.id).all()
+def _build_draft_content(org, obligations, evidence_items, doc_type):
+    """Template-based draft, enriched with an LLM call if OPENAI_API_KEY is set."""
+    sections = [f"# {DOC_TITLES.get(doc_type, doc_type)}", f"Organization: {org.name}", ""]
 
-    by_category = {}
-    for ev in evidence:
-        by_category.setdefault(ev.category, []).append(ev)
+    sections.append("## Obligations Covered")
+    for o in obligations:
+        sections.append(f"- [{o.status}] ({o.state_or_region}) {o.requirement_text}")
 
-    generated_at = datetime.utcnow()
-    content = TECH_FILE_TEMPLATE.render(
-        title=f"{doc_type} - {jurisdiction}",
-        org_name=org.name,
-        industry=org.industry,
-        employee_count=org.employee_count,
-        jurisdiction=jurisdiction,
-        evidence_by_category=by_category,
-        generated_at=generated_at.isoformat(),
+    sections.append("")
+    sections.append("## Supporting Evidence")
+    for e in evidence_items:
+        sections.append(f"- ({e.type}) {e.content_ref}")
+
+    draft_text = "\n".join(sections)
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if api_key:
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=api_key)
+            prompt = (
+                "Draft a concise, professional compliance document section based on the "
+                f"following structured evidence and obligations for document type '{doc_type}'. "
+                "Keep it factual and editable:\n\n" + draft_text
+            )
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            generated = response.choices[0].message.content
+            if generated:
+                return generated
+        except Exception:
+            pass
+
+    return draft_text
+
+
+def generate_document(db, org, doc_type):
+    """Idempotent + versioned: never overwrites prior drafts, creates a new version."""
+    obligations = db.query(ComplianceObligation).filter(ComplianceObligation.org_id == org.id).all()
+    evidence_items = db.query(EvidenceItem).filter(
+        EvidenceItem.org_id == org.id, EvidenceItem.is_current == True  # noqa: E712
+    ).all()
+
+    content = _build_draft_content(org, obligations, evidence_items, doc_type)
+
+    latest = (
+        db.query(TechnicalDocument)
+        .filter(TechnicalDocument.org_id == org.id, TechnicalDocument.doc_type == doc_type)
+        .order_by(TechnicalDocument.version.desc())
+        .first()
     )
+    next_version = (latest.version + 1) if latest else 1
 
-    doc = models.ComplianceDocument(
+    doc = TechnicalDocument(
         org_id=org.id,
         doc_type=doc_type,
-        jurisdiction=jurisdiction,
-        title=f"{doc_type} - {jurisdiction}",
+        title=DOC_TITLES.get(doc_type, doc_type),
         content=content,
-        status="generated",
-        generated_at=generated_at,
+        version=next_version,
+        status="draft",
+        generated_at=datetime.utcnow(),
     )
     db.add(doc)
     db.commit()
     db.refresh(doc)
     return doc
+
+
+def get_document_with_history(db, doc_id):
+    doc = db.query(TechnicalDocument).filter(TechnicalDocument.id == doc_id).first()
+    if not doc:
+        return None, []
+    history = (
+        db.query(TechnicalDocument)
+        .filter(TechnicalDocument.org_id == doc.org_id, TechnicalDocument.doc_type == doc.doc_type)
+        .order_by(TechnicalDocument.version.asc())
+        .all()
+    )
+    return doc, history
